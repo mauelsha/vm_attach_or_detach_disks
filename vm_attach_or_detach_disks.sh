@@ -200,7 +200,7 @@ help()
 Paths/targets/ids may contain glob patterns, including character lists, ranges, and ?,
 such as [adeu-y0-4?].  E.g. [14-7] sd[a-z], sd[ac]d[d-h]? or /dev/vg/lv?[0-9].
 
-Environment variable 'vm' can be used to define the default domain for the command."
+Environment variable 'vm' can be set and exported to define the default domain for the command."
 
 	echo "$h"
 }
