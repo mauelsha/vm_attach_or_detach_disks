@@ -45,6 +45,20 @@ such as [adeu-y0-4?].  E.g. [14-7] sd[a-z], sd[ac]d[d-h]? or /dev/vg/lv?[0-9].
 
 Environment variable 'vm' can be used to define the default domain for the command.
 
+# v --device_defaults   # : in range means paramater alias to use
+PARAMETER            VALUE    RANGE
+host                 0        0|1|2|3|...|253
+bus                  0        0
+target               0        0|1|...|255
+lun                  0        0|1|...|16383
+logical_block_size   512      512|1024|2048|...|32768
+physical_block_size  512      512|1024|2048|...|2097152
+cache                none     none|writeback:wb|writethrough:wt|directsync:ds|unsafe
+io                   threads  native|threads
+discard              unmap    ignore|unmap
+detect_zeroes        unmap    off|on|unmap
+shareable            yes      yes|n
+
 # v attach-disk $domain /dev/ws/d0 /dev/sda --host 5 --target 7 --lun 47
 vm_attach_or_detach_disks.sh -- Device attached successfully: /dev/ws/d0[sda:5:0:7:47]
 vm_attach_or_detach_disks.sh -- Device attached successfully: /dev/sda[sdb:5:0:7:48]
