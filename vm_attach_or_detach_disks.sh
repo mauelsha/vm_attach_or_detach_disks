@@ -1244,9 +1244,9 @@ check_cli()
 		r=1
 	fi
 
-	# Sanity check on detect zeroes and discard settings.
-	if [[ "${disk_params[detect_zeroes]}" == "unmap" && "${disk_params[discard]}" != "unmap" ]]; then
-		_stderr "If detect_zeroes is \"unmap\", discard needs to also be \"unmap\" to enable it!"
+	# Sanity check on detect zeroes and discard settings unless list command.
+	if [[ "$command" != "list" && "${disk_params[detect_zeroes]}" == "unmap" && "${disk_params[discard]}" != "unmap" ]]; then
+		_stderr "If detect_zeroes is \"unmap\", discard needs to be \"unmap\" to enable it!"
 		r=1
 	fi
 
