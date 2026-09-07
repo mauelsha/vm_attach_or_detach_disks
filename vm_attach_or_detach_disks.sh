@@ -14,7 +14,7 @@ PS4='+ ${EPOCHREALTIME} ${FUNCNAME[0]}[$LINENO]: ' # -x
 #
 # Global default declarations+definitions.
 #
-declare version="1.0.0"
+declare version="1.0.1"
 
 declare cmd="${0##*/}" # remove path from $0.
 declare command=''
@@ -93,7 +93,7 @@ trap "rm -f $tmpf_disk_xml 2>/dev/null" EXIT
 # Print a message to stdout.
 _stdout()
 {
-	echo "$cmd -- $@"
+	[[ -v cli_options[quiet] ]] || echo "$cmd -- $@"
 }
 
 # Print a message to stdout without lf.
@@ -117,7 +117,7 @@ _stdout_verbose_no_lf()
 # Print a message to stderr.
 _stderr()
 {
-	echo "$cmd -- $@" >&2
+	[[ -v cli_options[quiet] ]] || echo "$cmd -- $@" >&2
 }
 
 # Print a message to stderr without lf.
@@ -1232,6 +1232,7 @@ check_cli()
 		# done
 	else
 		_check_valid_list_opts || return 1
+		[[ -v cli_options[quiet] ]] && (( ${cli_options[verbose]} )) && return $(_stderr_ret "Option 'quiet' and 'verbose' are mutually exclusive")
 	fi
 
 	[[ "$command" == list && -v cli_options[quiet] && -v cli_options[short] ]] && \
@@ -1605,7 +1606,7 @@ attach_or_detach_devices()
 		r=1
 	elif (( ! n )); then
 		[[ "$command" == "attach-disk" ]] && msg="attached" || msg="detached"
-		printf "$cmd -- No devices %s." "$msg"
+		[[ -v cli_options[quiet] ]] || printf "$cmd -- No devices %s." "$msg"
 	fi
 
 	return $r
