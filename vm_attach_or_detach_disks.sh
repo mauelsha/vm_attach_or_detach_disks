@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-late)r
+# SPDX-FileCopyrightText: 2026 Red Hat, Inc.
+#
 #
 # Attach/detach/list a set of host block devices given by paths as
 # virtio-scsi devices with given paramaters to/from/of a VM.
@@ -422,6 +425,10 @@ _is_min_512_po2()
 	return 0
 }
 
+# Recursive core of glob expansion.
+# $1 = prefix
+# $2 = pattern to glob process
+# $3 = character set for pattern processing
 _glob_expand_core()
 {
 	local prefix="$1"
@@ -430,6 +437,7 @@ _glob_expand_core()
 	local c rest class from to
 	local -i i j k from_pos to_pos
 
+	# Only prefix, no pattern in recursion as it is fully processed already.
 	if [[ -z $pattern ]]; then
 		  printf '%s ' "$prefix"
 		  return
@@ -445,12 +453,12 @@ _glob_expand_core()
 		done
 		;;
 	 '[')
-		# Locate the closing bracket
+		# Locate the closing bracket.
 		for (( i = 1; i < ${#pattern}; i++ )); do
 			[[ ${pattern:i:1} == ']' ]] && break
 		done
 
-		# Treat an unmatched '[' literally
+		# Treat an unmatched '[' literally.
 		if (( i == ${#pattern} )); then
 			_glob_expand_core "$prefix[" "$rest" "$any"
 			return
@@ -459,7 +467,7 @@ _glob_expand_core()
 		class="${pattern:1:i-1}"
 		rest="${pattern:i+1}"
 
-		# Process characters and ranges inside [...]
+		# Process characters and ranges inside [...].
 		for (( j = 0; j < ${#class}; j++ )); do
 			if (( j + 2 < ${#class} )) && [[ ${class:j+1:1} == '-' ]]; then
 				from="${class:j:1}"
@@ -514,8 +522,10 @@ _glob_expand_devices()
 
 	for dev in "${args[@]}"; do
 		if [[ "$dev" =~ ^/dev/ ]]; then
+			# Expansion in any part of a path (e.g. /dev/foo[a-z][3-6].
 			devices_tmp+=( "$(_glob_expand "$dev" 'abcdefghijklmnopqrstuvwxyz0123456789')" )
 		else
+			# Expansin in target name (e.g. sd[d-h]?).
 			devices_tmp+=( "$(_glob_expand "$dev" '')" )
 		fi
 	done
@@ -1147,6 +1157,7 @@ _hbtl_handle_globs()
 		hbtl="${disk_params["$param"]}"
 		hbtl="${hbtl//,/ }"
 		for s in $hbtl; do
+			# Expansion of any host, bus, target, lun id (e.g. [25-7]; mind bus is limited to 0 as of current virtio-scsi).
 			hbtl_all+="$(_glob_expand "$s" '0123456789')"
 		done
 		hbtl_all="${hbtl_all%% }"
