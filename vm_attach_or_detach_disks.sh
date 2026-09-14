@@ -120,7 +120,7 @@ _stdout_verbose_no_lf()
 # Print a message to stderr.
 _stderr()
 {
-	[[ -v cli_options[quiet] ]] || echo "$cmd -- $@" >&2
+	echo "$cmd -- $@" >&2
 }
 
 # Print a message to stderr without lf.
@@ -203,8 +203,21 @@ help()
 Paths/targets/ids may contain glob patterns, including character lists, ranges, and ?,
 such as [adeu-y0-4?].  E.g. [14-7] sd[a-z], sd[ac]d[d-h]? or /dev/vg/lv?[0-9].
 
-Environment variable 'vm' can be set and exported to define the default domain for the command."
-
+Environment variable 'vm' "
+if [ -v vm ]; then
+	h+="is"
+else
+	h+="can be"
+fi
+h+=" defined and exported "
+if [ -v vm ]; then
+	h+="defining"
+else
+	h+="to define"
+fi
+h+=" the default domain"
+[ -v vm ] && h+=" '$vm'"
+h+=" for the command."
 	echo "$h"
 }
 
@@ -504,7 +517,7 @@ _glob_expand_core()
 _glob_expand()
 {
 	local pattern="$1"
-	local any="${2:-abcdefghijklmnopqrstuvwxyz}"
+	local any="${2:-"$(printf '%s' {a..z})"}"
 
 	_glob_expand_core '' "$pattern" "$any"
 }
@@ -523,7 +536,7 @@ _glob_expand_devices()
 	for dev in "${args[@]}"; do
 		if [[ "$dev" =~ ^/dev/ ]]; then
 			# Expansion in any part of a path (e.g. /dev/foo[a-z][3-6].
-			devices_tmp+=( "$(_glob_expand "$dev" 'abcdefghijklmnopqrstuvwxyz0123456789')" )
+			devices_tmp+=( "$(_glob_expand "$dev" "$(printf '%s' {a..z})$(printf '%s' {0..9})" )" )
 		else
 			# Expansin in target name (e.g. sd[d-h]?).
 			devices_tmp+=( "$(_glob_expand "$dev" '')" )
@@ -549,7 +562,7 @@ _check_devices_in_args()
 		else
 			if [[ ! -v dev_by_sd["$dev"] ]]; then
 				if [[ "$dev" == "$domain" ]]; then
-					_stderr "Device \"$dev\" and domain are the same. Is environment variable 'vm' set?"
+					_stderr "Device \"$dev\" and domain are the same. Environment variable 'vm' is set."
 				elif [[ ! "$dev" =~ ^sd[a-z] ]]; then
 					_stderr "Device \"$dev\" has inproper name."
 				else
@@ -1158,7 +1171,7 @@ _hbtl_handle_globs()
 		hbtl="${hbtl//,/ }"
 		for s in $hbtl; do
 			# Expansion of any host, bus, target, lun id (e.g. [25-7]; mind bus is limited to 0 as of current virtio-scsi).
-			hbtl_all+="$(_glob_expand "$s" '0123456789')"
+			hbtl_all+="$(_glob_expand "$s" "$(printf "%s" {0..9})")"
 		done
 		hbtl_all="${hbtl_all%% }"
 		hbtl="$hbtl_all"
@@ -1295,11 +1308,10 @@ check_cli()
 # Lock against parallel invocations.
 lock_run()
 {
-	_stdout_verbose "Locking against parallel invocations."
-
 	# Use lockfile to prevent parallel invocations.
 	local lock_file="/run/lock/$cmd-$UID.lock"
 
+	_stdout_verbose "Locking against parallel invocations."
 	trap "rm -f $lock_file $tmpf_disk_xml 2>/dev/null" EXIT
 	exec 9>"$lock_file" || return $(_stderr_ret  "Cannot open lock file \"$lock_file\"")
 	$flock_cmd -n 9 || return $(_stderr_ret  "Already running!")
@@ -1358,7 +1370,7 @@ parse_domain_config()
 
 			elif [[ "$l" =~ logical_block_size ]]; then
 				#      <blockio logical_block_size='1024' physical_block_size='4096'/>
-					lbs="${l#*logical_block_size=\'}"
+				lbs="${l#*logical_block_size=\'}"
 				pbs="$lbs"
 				lbs="${lbs%%\'[[:space:]]*}"
 				pbs="${pbs#*physical_block_size=\'}"
