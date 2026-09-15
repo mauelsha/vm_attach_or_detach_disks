@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: GPL-3.0-or-late)r
+# SPDX-License-Identifier: GPL-3.0-or-later
 # SPDX-FileCopyrightText: 2026 Red Hat, Inc.
 #
 #
@@ -17,19 +17,19 @@ PS4='+ ${EPOCHREALTIME} ${FUNCNAME[0]}[$LINENO]: ' # -x
 #
 # Global default declarations+definitions.
 #
-declare version="1.0.1"
+declare -r version="1.0.2"
 
 declare cmd="${0##*/}" # remove path from $0.
 declare command=''
 declare domain=''
+declare -r alphabet="$(printf '%s' {a..z})"
+declare -r digits="$(printf "%s" {0..9})"
+
+# Associative arrays.
 declare -A scsi_devices=() # Keep track of device properties (key=sd:property_name, value=property_value).
-declare -A dev_by_sd=() # All attached sd targets (key=sd,value=1).
-
-# Associative array of 'bools' for command line options provided.
-declare -A cli_options=()
-
-# Associative array of all options (keys) with long options (values) as defined by help() extraction (see define_options())
-declare -A all_options=()
+declare -A dev_by_sd=()    # All attached sd targets (key=sd,value=1).
+declare -A cli_options=()  # 'Bools' for command line options provided.
+declare -A all_options=()  # All options (keys) with long options (values) as defined by help() extraction (see define_options())
 
 # Arguments array (devices list after parsing command, domain, options and their arguments).
 declare -a args=()
@@ -517,7 +517,7 @@ _glob_expand_core()
 _glob_expand()
 {
 	local pattern="$1"
-	local any="${2:-"$(printf '%s' {a..z})"}"
+	local any="${2:-$alphabet}"
 
 	_glob_expand_core '' "$pattern" "$any"
 }
@@ -536,7 +536,7 @@ _glob_expand_devices()
 	for dev in "${args[@]}"; do
 		if [[ "$dev" =~ ^/dev/ ]]; then
 			# Expansion in any part of a path (e.g. /dev/foo[a-z][3-6].
-			devices_tmp+=( "$(_glob_expand "$dev" "$(printf '%s' {a..z})$(printf '%s' {0..9})" )" )
+			devices_tmp+=( "$(_glob_expand "$dev" "$alphabet$digits")" )
 		else
 			# Expansin in target name (e.g. sd[d-h]?).
 			devices_tmp+=( "$(_glob_expand "$dev" '')" )
@@ -546,7 +546,7 @@ _glob_expand_devices()
 	args=( ${devices_tmp[@]} )
 }
 
-# Check bdev for paths and associative array entry for sd*.
+# Check bdev for paths and associative array entry for targets (i.e. sd*).
 _check_devices_in_args()
 {
 	local dev=''
@@ -558,6 +558,8 @@ _check_devices_in_args()
 			if [[ ! -b "$dev" ]]; then
 				_stderr "Device \"$dev\" doesn't exist!"
 				continue
+			else
+				[[ ! -v dev_by_sd["$dev"] ]] && (( err_devs++ ))
 			fi
 		else
 			if [[ ! -v dev_by_sd["$dev"] ]]; then
@@ -576,7 +578,16 @@ _check_devices_in_args()
 		devices_tmp+=( "$dev" )
 	done
 
-	(( err_devs )) && _stderr "$err_devs (glob) requested devices not attached!"
+	if (( err_devs )); then
+		_stderr_no_lf "$err_devs requested device"
+		if (( err_devs > 1 ));then
+			echo -n "s are"
+		else
+			echo -n " is"
+		fi
+
+		echo " not attached!"
+	fi
 
 	args=( ${devices_tmp[@]} )
 }
@@ -608,7 +619,7 @@ _check_devices()
 		return 0
 	else
 		[[ "$command" == "list" ]]        && return $(_stderr_ret "No devices attached.")
-		[[ "$command" == "attach-disk" ]] && return $(_stderr_ret "No device(s) given to attach!")
+		[[ "$command" == "attach-disk" ]] && return $(_stderr "No devices given to attach!")
 	fi
 }
 
@@ -674,7 +685,6 @@ _define_sd_name()
 {
 	local -i n=$1
 	local -n sd1_ref="$2"
-	local alphabet="abcdefghijklmnopqrstuvwxyz"
 	local suffix=
 
 	while (( n >= 0 )); do
@@ -1171,7 +1181,7 @@ _hbtl_handle_globs()
 		hbtl="${hbtl//,/ }"
 		for s in $hbtl; do
 			# Expansion of any host, bus, target, lun id (e.g. [25-7]; mind bus is limited to 0 as of current virtio-scsi).
-			hbtl_all+="$(_glob_expand "$s" "$(printf "%s" {0..9})")"
+			hbtl_all+="$(_glob_expand "$s" "$digits")"
 		done
 		hbtl_all="${hbtl_all%% }"
 		hbtl="$hbtl_all"
@@ -1312,7 +1322,6 @@ lock_run()
 	local lock_file="/run/lock/$cmd-$UID.lock"
 
 	_stdout_verbose "Locking against parallel invocations."
-	trap "rm -f $lock_file $tmpf_disk_xml 2>/dev/null" EXIT
 	exec 9>"$lock_file" || return $(_stderr_ret  "Cannot open lock file \"$lock_file\"")
 	$flock_cmd -n 9 || return $(_stderr_ret  "Already running!")
 	return 0
@@ -1629,7 +1638,7 @@ attach_or_detach_devices()
 		r=1
 	elif (( ! n )); then
 		[[ "$command" == "attach-disk" ]] && msg="attached" || msg="detached"
-		[[ -v cli_options[quiet] ]] || printf "$cmd -- No devices %s." "$msg"
+		[[ -v cli_options[quiet] ]] || _stdout "No devices $msg"
 	fi
 
 	return $r
