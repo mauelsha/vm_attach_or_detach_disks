@@ -1647,7 +1647,7 @@ attach_or_detach_devices()
 #
 # "Main"
 #
-declare -a args_copy=("$@") # Depp copy to index arguments in parse_cli()
+declare -a args_copy=( "$@" ) # Deep copy to index arguments in parse_cli().
 define_options		 || exit 1
 parse_cli args_copy      || exit 1
 is_root                  || exit 1
