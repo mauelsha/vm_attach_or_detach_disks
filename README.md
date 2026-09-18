@@ -1,4 +1,4 @@
-Script to dynamically attach/detach host block as virtio-scsi devices ito qemu/kvm virtual machine and list their properties (e.g. for mass device testing).
+Script to dynamically attach/detach host block as virtio-scsi devices to qemu/kvm virtual machine and list their properties (e.g. for mass device testing).
 
 Glob expansion for device paths and targets is supported.
 virtio-scsi properties host, target, lun, logical_block_size, physical_block_size, io, cache, discard. detect_zeroes are fully configrable (bus limited to 0 for virtio-scsi).
