@@ -178,7 +178,7 @@ help()
 		[-C|--cache <mode>] [-I|--io <mode>]
 		[-d|--discard <type>] [-D|--detect_zeroes <type>]
 		[-l|--logical_block_size <bytes>} [-p|--physical_block_size <bytes>]
-		[-n|--noheading] [-S|--shareable <action>] [-h|--help] [-x|--device_defaults]
+		[-i|--ignorefailure] [-n|--noheading] [-S|--shareable <action>] [-h|--help] [-x|--device_defaults]
 		[-q|--quiet] [-s|--short] [-V|--version] [-v|--verbose]...
    [-a|--all]                           detach-disk: Select all attached scsi devices on detach-disk, no paths/targets
    [-H|--host <id[,<id>...]]            detach-disk|list: Select scsi host id(s)   (default 0, multiple for 'list')
@@ -193,6 +193,7 @@ help()
    [-D|--detect_zeroes (off|on|unmap)]  attach-disk: Configure detect zeroes processing (default: unmap)
    [-l|--logical_block_size <bytes>]    attach-disk: Logical block size in power-of-2 bytes for the set of block devices (default: 512)
    [-p|--physical_block_size <bytes>]   attach-disk: Physical block size in power-of-2 bytes for the set of block devices (default: 512)
+   [-i|--ignorefailure]                 ignore errors attaching/detaching subsets of devices and continue with the rest of the set
    [-n|--noheading                      list: Avoid header line
    [-S|--shareable (yes|no)             attach-disk: Shareable option (default: yes)
    [-x|--device_defaults]               Show device defaults
@@ -368,6 +369,7 @@ _check_valid_attach_opts()
 		[cache]=''
 		[discard]=''
 		[detect_zeroes]=''
+		[ignorefailure]=''
 		[logical_block_size]=''
 		[physical_block_size]=''
 		[shareable]=''
@@ -391,6 +393,7 @@ _check_valid_detach_opts()
 		[cache]=''
 		[discard]=''
 		[detect_zeroes]=''
+		[ignorefailure]=''
 		[logical_block_size]=''
 		[physical_block_size]=''
 		[all]=''
@@ -419,6 +422,7 @@ _check_valid_list_opts()
 		[physical_block_size]=''
 		[quiet]=''
 		[short]=''
+		[ignorefailure]=''
 		[noheading]=''
 		[shareable]=''
 		[help]=''
@@ -595,16 +599,12 @@ _check_devices_in_args()
 # Check if all devices exist.
 _check_devices()
 {
-	local dev=''
-	local g=''
-	local property=''
-
 	_stdout_verbose "Checking list of devices applying any glob expansion."
 
 	if (( "$command" != "list" && ! ${#args[@]} )); then
 		_stdout_no_lf ""
 		[[ -v cli_options[all] ]] || echo -n "Error: "
-		 "No scsi block devices" >&2
+		echo -n "No scsi block devices" >&2
 		[[ -v cli_options[all] ]] && echo -n " attached"
 		echo "!"
 		return 1
@@ -618,8 +618,8 @@ _check_devices()
 	if (( ${#args[@]} )); then
 		return 0
 	else
-		[[ "$command" == "list" ]]        && return $(_stderr_ret "No devices attached.")
-		[[ "$command" == "attach-disk" ]] && return $(_stderr "No devices given to attach!")
+		[[ "$command" == "list" ]]        && return $(_stderr_ret "No devices attached to $domain.")
+		[[ "$command" == "attach-disk" ]] && return $(_stderr "No devices given to attach to $domain!")
 	fi
 }
 
@@ -649,17 +649,14 @@ _populate_devices()
 	done < <(get_domblklist)
 
 	# Collapse entries (e.g. /dev/X multiple times).
-	args=("${!devices_tmp[@]}")
+	args=( ${!devices_tmp[@]} )
 }
 
 
 # Function only for 'attach-disk' command.
 _get_next_free_scsi_lun()
 {
-	local dev="$1"
-	local -n lun_ref="$2"
-	local -i unused=0
-	local l=''
+	local -n lun_ref="$1"
 	local property=''
 	local sd=''
 	local -A used_luns=()
@@ -721,10 +718,7 @@ _get_sd_from_device()
 {
 	local -n dev_ref="$1"
 	local -n sd_ref="$2"
-	local l=''
 	local sd1=''
-	local target=''
-	local path=''
 
 	[[ "$dev_ref" =~ ^[a-zA-Z0-9/_.-]+$ ]] || return 1 # Safety 1st...
 
@@ -785,11 +779,11 @@ _add_device_to_arrays()
 _delete_device_from_arrays()
 {
 	local sd="$1"
-	local dev="$2"
+	local property=''
 
 	unset dev_by_sd["$sd"]
 
-	for property in ${disk_params_names[@]}; do
+	for property in "${disk_params_names[@]}"; do
 		unset scsi_devices["${sd}:$property"]
 	done
 }
@@ -852,7 +846,6 @@ _cli_option_equals_disk_params()
 
 _filter_disk_params_set()
 {
-	local sd="$1"
 	local property=''
 
 	for property in "${disk_params_names[@]}";do
@@ -882,7 +875,7 @@ _check_dev()
 	local dev="$2"
 	local sd="$3"
 
-	(( ${#devs[@]} )) || return 0
+	(( ${#devs_ref[@]} )) || return 0
 	[[ -v devs_ref["$dev"] ]] && return 0
 	[[ -v devs_ref["$sd"] ]] && return 0
 	return 1
@@ -891,15 +884,11 @@ _check_dev()
 _list_attached_devices()
 {
 	local -i report_type=$1
-	local property=''
 	local sd=''
-	local sds=''
 	local dev=''
 	local o=''
 	local -A o_sort=()
-	local -i len=0
 	local -A devs=()
-	local -A widths=()
 
 	(( ${#scsi_devices[@]} )) || return 0
 
@@ -1018,7 +1007,6 @@ parse_cli()
 	local a2=''
 	local lo=''
 	local opt=''
-	local re=''
 
 	_split_short_options args_ref
 	cli_options[verbose]=0
@@ -1032,7 +1020,8 @@ parse_cli()
 			opt="-${all_options["$lo"]}|--$lo"
 
 			case "$lo" in
-			all|device_defaults|help|noheading|quiet|short|version)
+			# Options without arguments.
+			all|device_defaults|help|ignorefailure|noheading|quiet|short|version)
 				_check_option lo opt nshift || r=1 # Shorter list -> only check and set option
 				;;
 			host|bus|target|lun)
@@ -1089,7 +1078,7 @@ check_prereq_tools()
 		[[ ! -x $prereq ]] && return $(_stderr_ret "Mandatory $prereq command missing!")
 
 		# Define tool variables with full paths for safety.
-		eval "${prereq##*/}"_cmd="$prereq"
+		declare -g "${prereq##*/}"_cmd="$prereq"
 	done
 
 	return 0
@@ -1120,7 +1109,6 @@ _adjust_option_arguments()
 	local param=''
 	local params=''
 	local params_all=''
-	local -i len_arg=0
 	local -i len_alias=0
 	local -i len_param=0
 	local -i r=0
@@ -1140,7 +1128,6 @@ _adjust_option_arguments()
 				# Identify option argument alias split by ':' (see writeback:wb in option_arg_ranges associative array)
 				arg_alias="${arg_alias#*:}"
 				arg="${arg%%:*}"
-				len_arg=${#arg}
 				len_alias=${#arg_alias}
 
 				r=1
@@ -1188,7 +1175,7 @@ _hbtl_handle_globs()
 		hbtl_all=''
 		for s in $hbtl; do
 			# Remove leading zeroes, but leave one zero for an all-zero value.
-			while [[ ${#s} > 1 && "$s" =~ ^0 ]]; do
+			while [[ ${#s} -gt 1 && "$s" =~ ^0 ]]; do
 				s="${s#0}"
 			done
 			hbtl_all+="$s "
@@ -1350,6 +1337,13 @@ parse_domain_config()
 {
 	local host=''
 	local bus=''
+	local dev=''
+	local lbs=''
+	local pbs=''
+	local cache=''
+	local io=''
+	local discard=''
+	local detect_zeroes=''
 	local target=''
 	local lun=''
 	local sd=''
@@ -1511,7 +1505,7 @@ _attach_device()
 	local op=''
 	local xml=''
 
-	[[ $# != 3 || "$command" != "attach-disk" ]] && return 1
+	[[ $# -ne 3 || "$command" != "attach-disk" ]] && return 1
 	dev="$1"
 	sd="$2"
 	lun=$3
@@ -1539,7 +1533,6 @@ _attach_device()
 			echo -n "?"
 		fi
 		echo ""
-		r=1
 	else
 		_add_device_to_arrays $sd $dev $lun
 		_stderr "$op: $(_print_dev_properties $sd)"
@@ -1557,7 +1550,7 @@ _detach_device()
 	local -i r=0
 
 	[[ "$command" != "detach-disk" ]] && return 1
-	(( $# != 2 )) && return 1
+	[[ $# -ne 2 ]] && return 1
 
 	dev="$1"
 	sd="$2"
@@ -1570,7 +1563,7 @@ _detach_device()
 			return $(_stderr_ret "Failed to detach \"$dev\"")
 		else
 			_stdout "$op: $(_print_dev_properties $sd)"
-			_delete_device_from_arrays "$sd" "$dev"
+			_delete_device_from_arrays "$sd"
 			r=$?
 		fi
 	else
@@ -1604,9 +1597,10 @@ attach_or_detach_devices()
 
 		if [[ "$command" == "attach-disk" ]]; then
 			_define_next_free_sd_name sd $dev
-			_get_next_free_scsi_lun "$dev" lun
+			_get_next_free_scsi_lun lun
 			(( $? )) && _stderr "Failed to get next free virtio-scsi lun for \"$dev\""
-			_attach_device "$dev" "$sd" $lun || return 1
+			_attach_device "$dev" "$sd" $lun
+			[[ $? -ne 0 && ! -v cli_options[ignorefailure] ]] && return 1
 			(( n++ ))
 
 		elif [[ "$command" == "detach-disk" ]]; then
@@ -1618,11 +1612,12 @@ attach_or_detach_devices()
 				fi
 
 				if ! _filter_by_disk_params "$sd"; then
-					_delete_device_from_arrays "$sd" "$dev"
+					_delete_device_from_arrays "$sd"
 					continue
 				fi
 
-				_detach_device "$dev" "$sd"  || return 1
+				_detach_device "$dev" "$sd"
+				[[ $? -ne 0 && ! -v cli_options[ignorefailure] ]] && return 1
 				(( n++ ))
 				dev="$dev_sav"
 			done
@@ -1638,7 +1633,7 @@ attach_or_detach_devices()
 		r=1
 	elif (( ! n )); then
 		[[ "$command" == "attach-disk" ]] && msg="attached" || msg="detached"
-		[[ -v cli_options[quiet] ]] || _stdout "No devices $msg"
+		[[ -v cli_options[quiet] ]] || _stdout "No devices $msg[$domain]"
 	fi
 
 	return $r
