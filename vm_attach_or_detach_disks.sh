@@ -559,11 +559,10 @@ _check_devices_in_args()
 
 	for dev in "${args[@]}"; do
 		if [[ "$dev" =~ ^/dev/ ]]; then
-			if [[ ! -b "$dev" ]]; then
+			if [[ ! -L "$dev" && ! -b "$dev" && ! -v dev_by_sd["$dev"] ]]; then
 				_stderr "Device \"$dev\" doesn't exist!"
+				(( err_devs++ ))
 				continue
-			else
-				[[ ! -v dev_by_sd["$dev"] ]] && (( err_devs++ ))
 			fi
 		else
 			if [[ ! -v dev_by_sd["$dev"] ]]; then
@@ -585,12 +584,12 @@ _check_devices_in_args()
 	if (( err_devs )); then
 		_stderr_no_lf "$err_devs requested device"
 		if (( err_devs > 1 ));then
-			echo -n "s are"
+			echo -n "s are" >&2
 		else
-			echo -n " is"
+			echo -n " is" >&2
 		fi
 
-		echo " not attached!"
+		echo " not attached!" >&2
 	fi
 
 	args=( ${devices_tmp[@]} )
