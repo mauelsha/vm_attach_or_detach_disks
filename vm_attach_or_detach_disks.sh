@@ -446,75 +446,91 @@ _is_min_512_po2()
 # $1 = prefix
 # $2 = pattern to glob process
 # $3 = character set for pattern processing
+# $4 = max depth for '*' expansion (defaults to 3 if omitted)
 _glob_expand_core()
 {
-	local prefix="$1"
-	local pattern="$2"
-	local any="$3"
-	local c rest class from to
-	local -i i j k from_pos to_pos
+        local prefix="$1"
+        local pattern="$2"
+        local any="$3"
+        local limit="${4:-3}" # <-- NEW: safeguard for '*'
+        local c rest class from to
+        local -i i j k from_pos to_pos
 
-	# Only prefix, no pattern in recursion as it is fully processed already.
-	if [[ -z $pattern ]]; then
-		  printf '%s ' "$prefix"
-		  return
-	fi
+        if [[ -z "$pattern" ]]; then
+                printf '%s ' "$prefix"
+                return
+        fi
 
-	c="${pattern:0:1}"
-	rest="${pattern:1}"
+        c="${pattern:0:1}"
+        rest="${pattern:1}"
 
-	case $c in
-	'?')
-		for (( i = 0; i < ${#any}; i++ )); do
-			_glob_expand_core "$prefix${any:i:1}" "$rest" "$any"
-		done
-		;;
-	 '[')
-		# Locate the closing bracket.
-		for (( i = 1; i < ${#pattern}; i++ )); do
-			[[ ${pattern:i:1} == ']' ]] && break
-		done
+        case "$c" in
+        '?')
+                for (( i = 0; i < ${#any}; i++ )); do
+                        _glob_expand_core "$prefix${any:i:1}" "$rest" "$any" "$limit"
+                done
+                ;;
+        '[')
+                # Locate the closing bracket.
+                for (( i = 1; i < ${#pattern}; i++ )); do
+                        [[ ${pattern:i:1} == ']' ]] && break
+                done
 
-		# Treat an unmatched '[' literally.
-		if (( i == ${#pattern} )); then
-			_glob_expand_core "$prefix[" "$rest" "$any"
-			return
-		fi
+                # Treat an unmatched '[' literally.
+                if (( i == ${#pattern} )); then
+                        _glob_expand_core "$prefix[" "$rest" "$any" "$limit"
+                        return
+                fi
 
-		class="${pattern:1:i-1}"
-		rest="${pattern:i+1}"
+                class="${pattern:1:i-1}"
+                rest="${pattern:i+1}"
 
-		# Process characters and ranges inside [...].
-		for (( j = 0; j < ${#class}; j++ )); do
-			if (( j + 2 < ${#class} )) && [[ ${class:j+1:1} == '-' ]]; then
-				from="${class:j:1}"
-				to="${class:j+2:1}"
-				from_pos=-1
-				to_pos=-1
+                # Process characters and ranges inside [...].
+                for (( j = 0; j < ${#class}; j++ )); do
+                        if (( j + 2 < ${#class} )) && [[ ${class:j+1:1} == '-' ]]; then
+                                from="${class:j:1}"
+                                to="${class:j+2:1}"
+                                from_pos=-1
+                                to_pos=-1
 
-				for (( k = 0; k < ${#any}; k++ )); do
-					[[ "${any:k:1}" == "$from" ]] && from_pos=$k
-					[[ "${any:k:1}" == "$to"  ]] && to_pos=$k
-				done
+                                for (( k = 0; k < ${#any}; k++ )); do
+                                        [[ "${any:k:1}" == "$from" ]] && from_pos=$k
+                                        [[ "${any:k:1}" == "$to"   ]] && to_pos=$k
+                                done
 
+                                if ((from_pos >= 0 && to_pos >= from_pos)); then
+                                        for (( k = from_pos; k <= to_pos; k++ )); do
+                                                _glob_expand_core "$prefix${any:k:1}" "$rest" "$any" "$limit"
+                                        done
+                                fi
 
-				if ((from_pos >= 0 && to_pos >= from_pos)); then
-					for (( k = from_pos; k <= to_pos; k++ )); do
-						_glob_expand_core "$prefix${any:k:1}" "$rest" "$any"
-					done
-				fi
+                                (( j += 2 ))
+                        else
+                                _glob_expand_core "$prefix${class:j:1}" "$rest" "$any" "$limit"
+                        fi
+                done
+                ;;
+        '*')
+                # 1. Match zero characters: skip the '*' and process the rest of the pattern
+                _glob_expand_core "$prefix" "$rest" "$any" "$limit"
 
-				(( j += 2 ))
-			else
-				_glob_expand_core "$prefix${class:j:1}" "$rest" "$any"
-			fi
-		done
-		;;
-
-	*)
-		_glob_expand_core "$prefix$c" "$rest" "$any"
-		;;
-	esac
+                # 2. Match one or more characters: consume one char from $any,
+                # but KEEP the '*' in the pattern for the next loop, reducing the limit.
+                if (( limit > 0 )); then
+                        for (( i = 0; i < ${#any}; i++ )); do
+                                _glob_expand_core "$prefix${any:i:1}" "$pattern" "$any" "$(( limit - 1 ))"
+                        done
+                fi
+                ;;
+        *)
+                # Handle escaping (e.g. \? or \* or \[)
+                if [[ "$c" == '\' && -n "$rest" ]]; then
+                        c="${rest:0:1}"
+                        rest="${rest:1}"
+                fi
+                _glob_expand_core "$prefix$c" "$rest" "$any" "$limit"
+                ;;
+        esac
 }
 
 # Ensure minimum character set for glob expansion.
@@ -570,7 +586,6 @@ _check_devices_in_args()
 					_stderr "Device \"$dev\" and domain are the same. Environment variable 'vm' is set."
 				elif [[ ! "$dev" =~ ^sd[a-z] ]]; then
 					_stderr "Device \"$dev\" has inproper name."
-				else
 					(( err_devs++ ))
 				fi
 
